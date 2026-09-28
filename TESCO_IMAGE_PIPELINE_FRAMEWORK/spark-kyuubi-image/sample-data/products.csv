@@ -1,0 +1,9 @@
+product_id,product_name,category,unit_cost
+P001,Semi Skimmed Milk 2L,Dairy,0.95
+P002,Mature Cheddar 400g,Dairy,2.10
+P003,Wholemeal Bread 800g,Bakery,0.68
+P004,Croissants 4 Pack,Bakery,1.05
+P005,Bananas 1kg,Produce,0.62
+P006,British Apples 6 Pack,Produce,1.35
+P007,Free Range Eggs 12 Pack,Dairy,1.85
+P008,Orange Juice 1L,Beverages,1.10

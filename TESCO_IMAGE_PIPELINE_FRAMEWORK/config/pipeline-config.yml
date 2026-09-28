@@ -1,0 +1,56 @@
+# =============================================================================
+# TESCO Image Pipeline — CENTRAL CONFIGURATION (fully populated, no blockers)
+# Values below are sensible enterprise defaults so the pipeline runs green out
+# of the box; tune via pull request as real requirements emerge.
+# =============================================================================
+
+pipeline:
+  poc_image: spark-kyuubi
+  ci_platform: github-actions
+
+# ---- Quality Gate (read by scripts/quality_gate.sh) --------------------------
+quality_gate:
+  max_critical: 0          # any critical CVE fails the gate
+  max_high: 10             # high-CVE budget (Spark base images carry some highs)
+  fail_on_secrets: true    # any embedded secret fails the gate
+  dockle_exit_level: fatal
+
+# ---- Scanning -----------------------------------------------------------------
+scanning:
+  primary: trivy           # token-free; Snyk can be enabled alongside (see workflow)
+  trivy:
+    scanners: [vuln, secret]
+    sarif_to_security_tab: true
+  dockle:
+    enabled: true
+  syft:
+    sbom_formats: [spdx-json, cyclonedx-json]
+
+# ---- Dynamic testing ------------------------------------------------------------
+dynamic_testing:
+  startup_timeout_seconds: 180
+  engine_startup_timeout_seconds: 300
+  jdbc_url: "jdbc:hive2://localhost:10009"
+  performance_budget_seconds: 60
+  test_cases_document: "spark-kyuubi-image/tests/testcases/TEST_CASES.md"
+  sample_dataset: "spark-kyuubi-image/sample-data (retail star schema, mounted at /data/sample)"
+
+# ---- Notifications (auto-enable when secrets exist) ------------------------------
+notifications:
+  slack: enabled-if-SLACK_WEBHOOK_URL-set
+  teams: enabled-if-TEAMS_WEBHOOK_URL-set
+  routing:
+    build_failures: dev-application-team
+    security_failures: security-compliance-team
+    dynamic_test_failures: data-engineering-team
+    pipeline_failures: devops-platform-team
+
+# ---- Storage (auto-enable when S3_BUCKET variable exists) -------------------------
+storage:
+  backend: s3-or-ceph
+  key_layout: "<image-name>/<git-sha>/<stage>/<file>"
+  retention_days: 365
+
+# ---- Periodic re-scans --------------------------------------------------------------
+periodic_rescan:
+  schedule_cron: "23 4 * * 1"   # weekly, Monday 04:23 UTC

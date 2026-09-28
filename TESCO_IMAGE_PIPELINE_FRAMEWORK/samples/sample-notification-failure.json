@@ -1,0 +1,17 @@
+{
+  "_comment": "Sample Slack payload sent by scripts/notify.sh when the quality gate blocks the pipeline",
+  "attachments": [
+    {
+      "color": "#d00000",
+      "blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":rotating_light: *Pipeline FAILED at Stage 2 — Security Scan / Quality Gate for spark-kyuubi:4e8d2b1*\nStage 1 (Build & Lint): success\nStage 2 (Security Scan & Gate): failure\nStage 3 (Dynamic Testing): skipped\nLogs & reports: https://github.com/tesco/image-pipeline/actions/runs/1234567891"
+          }
+        }
+      ]
+    }
+  ]
+}

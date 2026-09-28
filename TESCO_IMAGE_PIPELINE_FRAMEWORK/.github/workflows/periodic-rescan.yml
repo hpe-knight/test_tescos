@@ -1,0 +1,66 @@
+# =============================================================================
+# Periodic Vulnerability Re-Scan — new CVEs are published daily; images that
+# passed last month may be vulnerable today. Token-free (Trivy).
+# Add released image references to the matrix as images go to production.
+# =============================================================================
+name: Periodic Vulnerability Re-Scan
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"        # Mondays 04:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  rescan:
+    name: Re-scan released images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          # Sample entry: a public image so the re-scan works out of the box.
+          # Replace/extend with TESCO's released registry references.
+          - "eclipse-temurin:17-jre-jammy"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull image
+        run: docker pull "${{ matrix.image }}"
+
+      - name: Trivy re-scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: json
+          output: rescan-results.json
+          scanners: vuln
+          exit-code: "0"
+
+      - name: Evaluate against thresholds
+        id: gate
+        continue-on-error: true
+        run: |
+          bash scripts/quality_gate.sh rescan-results.json "" \
+            config/pipeline-config.yml config/allowlist.yml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Alert on new critical findings (skips if webhooks unset)
+        if: steps.gate.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          PIPELINE_STATUS: "RESCAN-ALERT"
+          STAGE1_RESULT: "n/a"
+          STAGE2_RESULT: "re-scan of ${{ matrix.image }} breached thresholds"
+          STAGE3_RESULT: "n/a"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_REF: ${{ matrix.image }}
+        run: bash scripts/notify.sh
+
+      - name: Fail job if thresholds breached
+        if: steps.gate.outcome == 'failure'
+        run: exit 1

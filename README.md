@@ -11,11 +11,44 @@ proposal to TESCO. POC target: **Apache Spark + Kyuubi** stack.
 
 ---
 
+## What Is in This Repository — Two Framework Variants
+
+This repository contains **two variants of the same image-testing framework**.
+They share the same 3-stage pipeline design (Build & Lint → Security Scan +
+Quality Gate → Dynamic Testing, then Reports/Notify/Archive) but target
+different situations:
+
+| | **Root framework** (this level) | [`TESCO_IMAGE_PIPELINE_FRAMEWORK/`](TESCO_IMAGE_PIPELINE_FRAMEWORK/) |
+|---|---|---|
+| **Purpose** | Enterprise target-state prototype, per the HPE→TESCO proposal | Self-contained demo/evaluation version — runs out of the box |
+| **CVE scanner** | **Snyk** (requires a `SNYK_TOKEN` repo secret) | **Trivy** (open source, no account or token needed) |
+| **Other scanners** | Dockle (CIS), Syft (SBOM) | Same: Dockle (CIS), Syft (SBOM) |
+| **Test data** | None bundled — real cases come from the TESCO testing team (`docs/05`) | Bundled **sample retail star schema** (`stores`/`products`/`retail_sales` CSVs) + a sample Manual Test Case Document (`tests/testcases/TEST_CASES.md`) |
+| **Stage 3 tests** | Smoke + basic Spark SQL via JDBC | Smoke + SQL joins, **data-quality checks and a performance budget** against the sample data |
+| **Local execution** | CI-first (GitHub Actions) | One command: `bash scripts/run_local_pipeline.sh` (only Docker required) |
+| **Secrets needed for a green run** | `SNYK_TOKEN` (Slack/S3 optional) | **None** — notifications and S3 archival auto-skip when unconfigured |
+| **Documentation** | `docs/01`–`05` operational guides | `README.md` + `STEP_BY_STEP_GUIDE.md` walkthrough |
+
+**Which one runs in CI?** Only the **root** framework: GitHub Actions executes
+workflows from `.github/workflows/` at the repository root. The copies under
+`TESCO_IMAGE_PIPELINE_FRAMEWORK/.github/workflows/` are inert here by design —
+to run that variant in CI, push the folder's *contents* as the root of its own
+repository (see its `STEP_BY_STEP_GUIDE.md`, Part 2). To try it locally, no
+repository is needed at all — just Docker.
+
+**Suggested use:** evaluate and demo with `TESCO_IMAGE_PIPELINE_FRAMEWORK/`
+(zero setup), then adopt the root framework for the real rollout once the
+Snyk account and the testing team's inputs (`docs/05`) are available.
+
+---
+
 ## Repository Layout
 
 ```text
 TESCO_CICD/
 ├── README.md                          <- You are here
+├── TESCO_IMAGE_PIPELINE_FRAMEWORK/    <- Self-contained variant (Trivy, sample data,
+│                                         local runner) — see comparison table above
 ├── .github/
 │   └── workflows/
 │       ├── image-pipeline.yml         <- Main pipeline (Stages 1-3 + gate + reports)

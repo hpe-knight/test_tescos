@@ -1,0 +1,8 @@
+# Hadolint — Dockerfile lint rules. Every ignored rule needs a justification.
+failure-threshold: warning
+ignored:
+  # DL3008 (pin apt versions): base image is version-pinned; the few apt
+  # utilities (curl, tini, procps) float with Ubuntu security updates by design.
+  - DL3008
+trustedRegistries:
+  - docker.io

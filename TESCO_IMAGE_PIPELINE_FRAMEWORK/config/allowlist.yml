@@ -1,0 +1,15 @@
+# =============================================================================
+# VULNERABILITY ALLOWLIST — time-boxed, reviewed risk acceptances.
+# The quality gate excludes only UNEXPIRED entries; expired ones count again
+# automatically. Every entry requires id + reason + approved_by + expires.
+# Protect this file with CODEOWNERS (Security review on every change).
+# =============================================================================
+
+allowlist: []
+
+# --- SAMPLE ENTRY (inactive: kept as documentation; expiry already passed) ---
+# allowlist:
+#   - id: CVE-2023-2650                     # Trivy VulnerabilityID
+#     reason: "openssl DoS in DER parsing — image never parses untrusted DER"
+#     approved_by: "security-compliance-team"
+#     expires: 2025-06-30                   # expired -> would count again today

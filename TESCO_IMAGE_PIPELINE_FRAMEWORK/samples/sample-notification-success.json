@@ -1,0 +1,17 @@
+{
+  "_comment": "Sample Slack payload sent by scripts/notify.sh on a green run",
+  "attachments": [
+    {
+      "color": "#2eb886",
+      "blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":white_check_mark: *All tests PASSED for spark-kyuubi:9f2c1a7*\nStage 1 (Build & Lint): success\nStage 2 (Security Scan & Gate): success\nStage 3 (Dynamic Testing): success\nLogs & reports: https://github.com/tesco/image-pipeline/actions/runs/1234567890"
+          }
+        }
+      ]
+    }
+  ]
+}

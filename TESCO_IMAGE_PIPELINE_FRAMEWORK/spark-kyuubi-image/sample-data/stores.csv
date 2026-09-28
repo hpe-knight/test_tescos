@@ -1,0 +1,6 @@
+store_id,store_name,region,store_format
+S001,London Kensington Superstore,London,Superstore
+S002,Manchester Arndale Metro,North,Metro
+S003,Leeds City Centre Express,North,Express
+S004,Bristol Cribbs Causeway Superstore,South West,Superstore
+S005,Croydon Purley Way Extra,London,Extra

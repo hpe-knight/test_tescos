@@ -1,0 +1,7 @@
+.git
+.github
+tests
+sample-data
+*.md
+reports
+image.tar
