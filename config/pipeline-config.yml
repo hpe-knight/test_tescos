@@ -1,0 +1,63 @@
+# =============================================================================
+# TESCO Image Pipeline — CENTRAL CONFIGURATION
+# Single place for tunables. Items marked TBD-TESTING-TEAM are collected via
+# docs/05_DISCOVERY_CHECKLIST_FOR_TESTING_TEAM.md and filled in later; the
+# defaults below are safe and let the prototype run end to end today.
+# =============================================================================
+
+pipeline:
+  poc_image: spark-kyuubi
+  ci_platform: github-actions
+
+# ---------------- Quality Gate thresholds (scripts/quality_gate.sh) ----------
+quality_gate:
+  max_critical: 0        # FAIL on any critical CVE. TBD-TESTING-TEAM: confirm.
+  max_high: 5            # TBD-TESTING-TEAM: confirm acceptable high-CVE budget.
+  fail_on_secrets: true  # any detected secret blocks the pipeline
+  dockle_exit_level: fatal
+
+# ---------------- Scanning tools ---------------------------------------------
+scanning:
+  snyk:
+    severity_threshold: high
+    sarif_to_security_tab: true
+  dockle:
+    enabled: true
+  syft:
+    sbom_formats: [spdx-json, cyclonedx-json]
+
+# ---------------- Dynamic testing --------------------------------------------
+dynamic_testing:
+  startup_timeout_seconds: 180
+  engine_startup_timeout_seconds: 300
+  jdbc_url: "jdbc:hive2://localhost:10009"
+  # TBD-TESTING-TEAM: manual test cases to automate (from Manual Test Case Document)
+  manual_test_cases_source: "TBD-TESTING-TEAM"
+
+# ---------------- Notifications ----------------------------------------------
+notifications:
+  channels:                     # TBD-TESTING-TEAM: confirm channels + escalation matrix
+    slack: enabled-if-secret-set
+    teams: enabled-if-secret-set
+    email: "TBD-TESTING-TEAM"
+    jira: "TBD-TESTING-TEAM"
+  routing:                      # TBD-TESTING-TEAM: map to real channel/DL names
+    build_failures: "dev-application-team"
+    pipeline_failures: "devops-platform-team"
+    security_failures: "security-compliance-team"
+    spark_kyuubi_failures: "data-engineering-team"
+
+# ---------------- Storage ------------------------------------------------------
+storage:
+  backend: "s3"                 # s3 | ceph (Ceph: set repo variable S3_ENDPOINT_URL)
+  bucket: "set-repo-variable-S3_BUCKET"
+  key_layout: "<image-name>/<git-sha>/<stage>/<file>"
+  retention: "TBD-TESTING-TEAM (compliance-driven lifecycle rules)"
+
+# ---------------- Optional / to confirm ---------------------------------------
+image_signing:
+  cosign_enabled: false          # TBD-TESTING-TEAM: confirm signing requirement
+periodic_rescan:
+  schedule_cron: "23 4 * * 1"    # TBD-TESTING-TEAM: confirm frequency
+compliance:
+  sbom_sharing: "TBD-TESTING-TEAM (regulatory requirements)"

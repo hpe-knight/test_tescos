@@ -1,0 +1,309 @@
+# =============================================================================
+# TESCO — Automated Docker Image Testing & Scanning Pipeline
+# Stages: 1) Build & Lint  2) Security Scan + Quality Gate  3) Dynamic Testing
+# Then:   Reports, Notifications, S3/Ceph archival (always run)
+#
+# Central tunables live in config/pipeline-config.yml (documented in
+# docs/02_CONFIGURATION_GUIDE.md). Secrets required are listed in
+# docs/01_PREREQUISITES_AND_TOOLS_SETUP.md.
+# =============================================================================
+name: Docker Image Testing & Scanning Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "spark-kyuubi-image/**"
+      - ".github/workflows/image-pipeline.yml"
+      - "scripts/**"
+      - "config/**"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_dir:
+        description: "Image directory to build (repo-relative)"
+        required: false
+        default: "spark-kyuubi-image"
+
+env:
+  IMAGE_NAME: spark-kyuubi
+  IMAGE_DIR: ${{ github.event.inputs.image_dir || 'spark-kyuubi-image' }}
+  IMAGE_TAG: ${{ github.sha }}
+
+permissions:
+  contents: read
+  security-events: write   # SARIF upload to the GitHub Security tab
+  actions: read
+
+jobs:
+  # ===========================================================================
+  # STAGE 1 — BUILD & CODE QUALITY
+  # ===========================================================================
+  build-and-lint:
+    name: "Stage 1 — Build & Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile (Hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ env.IMAGE_DIR }}/Dockerfile
+          config: ${{ env.IMAGE_DIR }}/.hadolint.yaml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (multi-stage, GHA layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.IMAGE_DIR }}
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run unit tests
+        run: |
+          mkdir -p reports/stage1
+          bash ${IMAGE_DIR}/tests/unit/run_tests.sh reports/stage1/junit-unit.xml
+
+      # The image is handed to later jobs as a tar artifact. For very large
+      # Spark images, switch to push/pull via a registry instead (see
+      # docs/02_CONFIGURATION_GUIDE.md → "Large image strategy").
+      - name: Save image for downstream stages
+        run: docker save ${IMAGE_NAME}:${IMAGE_TAG} -o image.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+          retention-days: 1
+
+      - name: Upload Stage 1 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-build-reports
+          path: reports/stage1/
+
+  # ===========================================================================
+  # STAGE 2 — SECURITY & VULNERABILITY SCANNING + QUALITY GATE
+  # ===========================================================================
+  security-scan:
+    name: "Stage 2 — Security Scan & Quality Gate"
+    runs-on: ubuntu-latest
+    needs: build-and-lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load image
+        run: docker load -i image.tar
+
+      - name: Prepare report directory
+        run: mkdir -p reports/stage2
+
+      # ------------------------- SNYK -------------------------
+      # continue-on-error so ALL reports are produced; the quality gate step
+      # below makes the actual pass/fail decision from the JSON output.
+      - name: Snyk container scan (vulnerabilities, deps, secrets)
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          args: >-
+            --file=${{ env.IMAGE_DIR }}/Dockerfile
+            --json-file-output=reports/stage2/snyk-results.json
+            --sarif-file-output=reports/stage2/snyk-results.sarif
+
+      - name: Upload Snyk SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: reports/stage2/snyk-results.sarif
+          category: snyk-container
+
+      - name: Generate Snyk HTML report (stakeholder-readable)
+        if: always()
+        continue-on-error: true
+        run: |
+          npm install -g snyk-to-html
+          snyk-to-html -i reports/stage2/snyk-results.json \
+                       -o reports/stage2/snyk-report.html
+
+      # ------------------------ DOCKLE ------------------------
+      - name: Dockle — CIS Docker Benchmark scan
+        continue-on-error: true
+        run: |
+          DOCKLE_VERSION=$(curl -s https://api.github.com/repos/goodwithtech/dockle/releases/latest \
+            | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+          curl -sSL -o dockle.tar.gz \
+            "https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-64bit.tar.gz"
+          tar zxf dockle.tar.gz dockle
+          ./dockle --format json --output reports/stage2/dockle-results.json \
+                   "${IMAGE_NAME}:${IMAGE_TAG}"
+          ./dockle "${IMAGE_NAME}:${IMAGE_TAG}" | tee reports/stage2/dockle-results.txt
+
+      # ------------------------- SYFT -------------------------
+      - name: Syft — generate SBOM (SPDX + CycloneDX)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+          syft "${IMAGE_NAME}:${IMAGE_TAG}" -o spdx-json  > reports/stage2/sbom.spdx.json
+          syft "${IMAGE_NAME}:${IMAGE_TAG}" -o cyclonedx-json > reports/stage2/sbom.cyclonedx.json
+
+      - name: Upload Stage 2 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage2-security-reports
+          path: reports/stage2/
+
+      # --------------------- QUALITY GATE ---------------------
+      # Reads thresholds from config/pipeline-config.yml and the approved
+      # exceptions from config/allowlist.yml. Non-zero exit blocks Stage 3.
+      - name: Quality Gate
+        run: |
+          bash scripts/quality_gate.sh \
+            reports/stage2/snyk-results.json \
+            reports/stage2/dockle-results.json \
+            config/pipeline-config.yml \
+            config/allowlist.yml | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # STAGE 3 — DYNAMIC TESTING (TEST SPIN-UP)
+  # ===========================================================================
+  dynamic-test:
+    name: "Stage 3 — Dynamic Testing"
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load image
+        run: docker load -i image.tar
+
+      - name: Spin up test environment
+        working-directory: ${{ env.IMAGE_DIR }}
+        env:
+          TEST_IMAGE: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        run: docker compose -f docker-compose.test.yml up -d
+
+      - name: Smoke tests (health, ports, processes)
+        run: |
+          mkdir -p reports/stage3
+          bash ${IMAGE_DIR}/tests/smoke/smoke_test.sh reports/stage3/junit-smoke.xml
+
+      - name: Integration tests (Spark SQL engine, JDBC/Thrift, queries)
+        run: |
+          bash ${IMAGE_DIR}/tests/integration/integration_test.sh reports/stage3/junit-integration.xml
+
+      - name: Collect container logs
+        if: always()
+        working-directory: ${{ env.IMAGE_DIR }}
+        run: |
+          mkdir -p ../reports/stage3
+          docker compose -f docker-compose.test.yml logs --no-color \
+            > ../reports/stage3/container-logs.txt || true
+          docker compose -f docker-compose.test.yml down -v || true
+
+      - name: Upload Stage 3 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage3-test-reports
+          path: reports/stage3/
+
+  # ===========================================================================
+  # REPORTS, NOTIFICATIONS & S3/CEPH ARCHIVAL — always runs
+  # ===========================================================================
+  report-and-notify:
+    name: "Reports, Notify & Archive"
+    runs-on: ubuntu-latest
+    needs: [build-and-lint, security-scan, dynamic-test]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports
+          pattern: stage*-*
+          merge-multiple: false
+
+      - name: Determine pipeline result
+        id: result
+        run: |
+          S1="${{ needs.build-and-lint.result }}"
+          S2="${{ needs.security-scan.result }}"
+          S3="${{ needs.dynamic-test.result }}"
+          echo "s1=$S1" >> "$GITHUB_OUTPUT"
+          echo "s2=$S2" >> "$GITHUB_OUTPUT"
+          echo "s3=$S3" >> "$GITHUB_OUTPUT"
+          if [ "$S1" = "success" ] && [ "$S2" = "success" ] && [ "$S3" = "success" ]; then
+            echo "status=PASSED" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=FAILED" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Archive everything for audit — success or failure.
+      # Layout: s3://<bucket>/<image>/<sha>/<stage>/...  (Ceph: set S3_ENDPOINT_URL)
+      - name: Archive reports to S3 / Ceph
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL }}   # empty for AWS, set for Ceph RGW
+        run: |
+          bash scripts/upload_to_s3.sh all-reports "${IMAGE_NAME}" "${IMAGE_TAG}"
+
+      - name: Send notification (Slack / Teams)
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          PIPELINE_STATUS: ${{ steps.result.outputs.status }}
+          STAGE1_RESULT: ${{ steps.result.outputs.s1 }}
+          STAGE2_RESULT: ${{ steps.result.outputs.s2 }}
+          STAGE3_RESULT: ${{ steps.result.outputs.s3 }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        run: bash scripts/notify.sh
+
+      - name: Write run summary
+        if: always()
+        run: |
+          {
+            echo "## Pipeline Result: ${{ steps.result.outputs.status }}"
+            echo ""
+            echo "| Stage | Result |"
+            echo "|-------|--------|"
+            echo "| 1 — Build & Lint | ${{ steps.result.outputs.s1 }} |"
+            echo "| 2 — Security Scan & Gate | ${{ steps.result.outputs.s2 }} |"
+            echo "| 3 — Dynamic Testing | ${{ steps.result.outputs.s3 }} |"
+            echo ""
+            echo "Image: \`${IMAGE_NAME}:${IMAGE_TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

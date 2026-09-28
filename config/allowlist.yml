@@ -1,0 +1,18 @@
+# =============================================================================
+# VULNERABILITY ALLOWLIST — Security-approved, time-boxed risk acceptances.
+# The quality gate (scripts/quality_gate.sh) excludes UNEXPIRED entries only.
+# Rules:
+#   - Every entry needs: id, reason, approved_by, expires (YYYY-MM-DD).
+#   - Changes to this file MUST be reviewed by the Security/Compliance team
+#     (protect via CODEOWNERS).
+#   - Expired entries count again automatically — no silent forever-exceptions.
+# =============================================================================
+
+allowlist: []
+
+# Example entry (remove leading comments to activate):
+# allowlist:
+#   - id: SNYK-UBUNTU2204-EXAMPLE-0000001
+#     reason: "No fix available upstream; component not reachable at runtime"
+#     approved_by: "security-compliance-team"
+#     expires: 2026-12-31

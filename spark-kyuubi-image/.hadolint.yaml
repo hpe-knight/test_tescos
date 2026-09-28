@@ -1,0 +1,16 @@
+# Hadolint configuration — Dockerfile lint rules for TESCO images.
+# Every ignored rule needs a justification comment; the Security team reviews
+# changes to this file. Docs: https://github.com/hadolint/hadolint
+
+failure-threshold: warning
+
+ignored:
+  # DL3008 (pin apt package versions): base image is version-pinned and apt
+  # packages are utilities only; pinning them breaks on Ubuntu point releases.
+  # Accepted by: TBD-TESTING-TEAM / Security — revisit at POC review.
+  - DL3008
+
+trustedRegistries:
+  - docker.io
+  # TBD-TESTING-TEAM: add TESCO's internal registry here, e.g.
+  # - registry.tesco.internal

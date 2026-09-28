@@ -1,0 +1,86 @@
+# =============================================================================
+# TESCO — Periodic Vulnerability Re-Scan
+# New CVEs are published daily; an image that passed last month may be
+# vulnerable today. This workflow re-scans previously approved images on a
+# schedule and alerts the Security team when NEW critical findings appear.
+#
+# Frequency: TBD-TESTING-TEAM (see docs/05 discovery checklist). Default: weekly.
+# =============================================================================
+name: Periodic Vulnerability Re-Scan
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"       # Mondays 04:23 UTC — adjust per TESCO agreement
+  workflow_dispatch:            # allow manual on-demand re-scans
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  rescan:
+    name: Re-scan approved images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add each production/approved image reference here as images are
+        # onboarded (docs/04). Registry or S3-restored references both work.
+        image:
+          - "spark-kyuubi:latest"     # TBD-TESTING-TEAM: replace with real registry ref
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # If images live in a private registry, log in here.
+      # - uses: docker/login-action@v3
+      #   with: { registry: ..., username: ..., password: ... }
+
+      - name: Pull image
+        continue-on-error: true
+        run: docker pull "${{ matrix.image }}" || echo "PULL_FAILED=1" >> "$GITHUB_ENV"
+
+      - name: Snyk re-scan
+        if: env.PULL_FAILED != '1'
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ matrix.image }}
+          args: --json-file-output=rescan-results.json
+
+      - name: Evaluate against thresholds
+        if: env.PULL_FAILED != '1'
+        id: gate
+        continue-on-error: true
+        run: |
+          bash scripts/quality_gate.sh rescan-results.json "" \
+            config/pipeline-config.yml config/allowlist.yml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Archive re-scan report to S3 / Ceph
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL }}
+        run: |
+          mkdir -p rescan-report && cp -f rescan-results.json rescan-report/ 2>/dev/null || true
+          bash scripts/upload_to_s3.sh rescan-report "rescans" "$(date +%Y-%m-%d)"
+
+      - name: Alert Security team on new critical findings
+        if: steps.gate.outcome == 'failure' || env.PULL_FAILED == '1'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          PIPELINE_STATUS: "RESCAN-ALERT"
+          STAGE1_RESULT: "n/a"
+          STAGE2_RESULT: "rescan of ${{ matrix.image }} breached thresholds (or pull failed)"
+          STAGE3_RESULT: "n/a"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_REF: ${{ matrix.image }}
+        run: bash scripts/notify.sh

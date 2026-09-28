@@ -1,0 +1,20 @@
+# Stage 3 dynamic-test environment.
+# The pipeline sets TEST_IMAGE to the freshly built image (spark-kyuubi:<sha>).
+# For local debugging:  TEST_IMAGE=spark-kyuubi:dev docker compose -f docker-compose.test.yml up -d
+
+services:
+  kyuubi:
+    image: ${TEST_IMAGE:-spark-kyuubi:dev}
+    container_name: kyuubi-test
+    ports:
+      - "10009:10009"   # Thrift/JDBC
+      - "10099:10099"   # REST + health endpoint
+    environment:
+      # Keep CI resource use modest; production values are validated separately.
+      SPARK_LOCAL_IP: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:10099/api/v1/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
