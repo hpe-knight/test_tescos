@@ -28,7 +28,7 @@ scanning:
 
 # ---------------- Dynamic testing --------------------------------------------
 dynamic_testing:
-  startup_timeout_seconds: 180
+  startup_timeout_seconds: 300
   engine_startup_timeout_seconds: 300
   jdbc_url: "jdbc:hive2://localhost:10009"
   # TBD-TESTING-TEAM: manual test cases to automate (from Manual Test Case Document)

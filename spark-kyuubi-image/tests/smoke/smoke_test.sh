@@ -10,7 +10,7 @@ JUNIT_OUT="${1:-junit-smoke.xml}"
 CONTAINER="kyuubi-test"
 HEALTH_URL="http://localhost:10099/api/v1/ping"
 THRIFT_PORT=10009
-STARTUP_TIMEOUT=180   # seconds — Spark+Kyuubi images are slow to start
+STARTUP_TIMEOUT=300   # seconds — Spark+Kyuubi needs ~3 min on 2-core CI runners
 
 PASS=0; FAIL=0; CASES=""
 
