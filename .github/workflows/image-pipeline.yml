@@ -113,9 +113,25 @@ jobs:
         run: mkdir -p reports/stage2
 
       # ------------------------- SNYK -------------------------
+      # Snyk needs a SNYK_TOKEN secret. If it is not configured the scan is
+      # skipped and the quality gate is told, so it can degrade gracefully
+      # instead of failing on missing scan evidence.
+      - name: Check Snyk token availability
+        id: snyk-check
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "${SNYK_TOKEN}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SNYK_TOKEN secret not configured — Snyk scan will be skipped."
+          fi
+
       # continue-on-error so ALL reports are produced; the quality gate step
       # below makes the actual pass/fail decision from the JSON output.
       - name: Snyk container scan (vulnerabilities, deps, secrets)
+        if: steps.snyk-check.outputs.available == 'true'
         uses: snyk/actions/docker@master
         continue-on-error: true
         env:
@@ -128,7 +144,7 @@ jobs:
             --sarif-file-output=reports/stage2/snyk-results.sarif
 
       - name: Upload Snyk SARIF to GitHub Security tab
-        if: always()
+        if: always() && steps.snyk-check.outputs.available == 'true'
         uses: github/codeql-action/upload-sarif@v3
         continue-on-error: true
         with:
@@ -136,7 +152,7 @@ jobs:
           category: snyk-container
 
       - name: Generate Snyk HTML report (stakeholder-readable)
-        if: always()
+        if: always() && steps.snyk-check.outputs.available == 'true'
         continue-on-error: true
         run: |
           npm install -g snyk-to-html
@@ -146,8 +162,11 @@ jobs:
       # ------------------------ DOCKLE ------------------------
       - name: Dockle — CIS Docker Benchmark scan
         continue-on-error: true
+        env:
+          GH_API_TOKEN: ${{ github.token }}   # avoids unauthenticated API rate limits
         run: |
-          DOCKLE_VERSION=$(curl -s https://api.github.com/repos/goodwithtech/dockle/releases/latest \
+          DOCKLE_VERSION=$(curl -s -H "Authorization: Bearer ${GH_API_TOKEN}" \
+            https://api.github.com/repos/goodwithtech/dockle/releases/latest \
             | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
           curl -sSL -o dockle.tar.gz \
             "https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-64bit.tar.gz"
@@ -174,7 +193,11 @@ jobs:
       # --------------------- QUALITY GATE ---------------------
       # Reads thresholds from config/pipeline-config.yml and the approved
       # exceptions from config/allowlist.yml. Non-zero exit blocks Stage 3.
+      # SNYK_SKIPPED lets the gate distinguish "scan not configured" (warn)
+      # from "scan ran but produced no output" (fail).
       - name: Quality Gate
+        env:
+          SNYK_SKIPPED: ${{ steps.snyk-check.outputs.available == 'false' }}
         run: |
           bash scripts/quality_gate.sh \
             reports/stage2/snyk-results.json \

@@ -33,6 +33,7 @@ ALLOWED_IDS=$(awk -v today="${TODAY}" '
 echo "Allowlisted (unexpired) vulnerability IDs: ${ALLOWED_IDS:-none}"
 
 # --- Count Snyk findings by severity, excluding allowlisted -------------------
+SNYK_NOTE=""
 if [ -s "${SNYK_JSON}" ]; then
   ALLOW_JSON=$(printf '%s\n' ${ALLOWED_IDS} | jq -R . | jq -s .)
   CRITICAL=$(jq --argjson allow "${ALLOW_JSON}" \
@@ -41,6 +42,11 @@ if [ -s "${SNYK_JSON}" ]; then
   HIGH=$(jq --argjson allow "${ALLOW_JSON}" \
     '[.vulnerabilities[]? | select(.severity=="high") | select((.id as $i | $allow | index($i)) | not)] | length' \
     "${SNYK_JSON}" 2>/dev/null || echo 0)
+elif [ "${SNYK_SKIPPED:-false}" = "true" ]; then
+  echo "WARNING: Snyk scan skipped (SNYK_TOKEN not configured) — vulnerability"
+  echo "checks not enforced this run. Configure the SNYK_TOKEN secret to enable them."
+  CRITICAL=0; HIGH=0
+  SNYK_NOTE=" (Snyk skipped — no token)"
 else
   echo "WARNING: Snyk JSON missing/empty — treating as gate failure (no scan evidence)."
   CRITICAL=999; HIGH=999
@@ -64,8 +70,8 @@ check() { # label, found, max
   if [ "$2" -gt "$3" ]; then res="FAIL"; GATE_FAIL=1; fi
   echo "| $1 | $2 | <= $3 | ${res} |"
 }
-check "Critical vulnerabilities" "${CRITICAL}" "${MAX_CRITICAL}"
-check "High vulnerabilities"     "${HIGH}"     "${MAX_HIGH}"
+check "Critical vulnerabilities${SNYK_NOTE}" "${CRITICAL}" "${MAX_CRITICAL}"
+check "High vulnerabilities${SNYK_NOTE}"     "${HIGH}"     "${MAX_HIGH}"
 check "Dockle FATAL (CIS)"       "${DOCKLE_FATAL}" 0
 
 echo ""
