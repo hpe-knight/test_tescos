@@ -15,6 +15,13 @@ quality_gate:
   max_high: 5            # TBD-TESTING-TEAM: confirm acceptable high-CVE budget.
   fail_on_secrets: true  # any detected secret blocks the pipeline
   dockle_exit_level: fatal
+  # Bundled application dependencies (Spark/Kyuubi jars from the upstream
+  # Apache distributions). Reported informationally by default; flip
+  # gate_app_dependencies to true to enforce the thresholds below once the
+  # acceptance policy is agreed. TBD-TESTING-TEAM: confirm policy.
+  gate_app_dependencies: false
+  max_app_critical: 0
+  max_app_high: 10
 
 # ---------------- Scanning tools ---------------------------------------------
 scanning:

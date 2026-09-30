@@ -24,10 +24,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Add each production/approved image reference here as images are
-        # onboarded (docs/04). Registry or S3-restored references both work.
+        # Each production/approved image reference to re-scan. The image
+        # pipeline's publish job pushes <namespace>/spark-kyuubi:latest on
+        # every successful main-branch run. Add further images as they are
+        # onboarded (docs/04).
         image:
-          - "spark-kyuubi:latest"     # TBD-TESTING-TEAM: replace with real registry ref
+          - "hpeknight/spark-kyuubi:latest"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

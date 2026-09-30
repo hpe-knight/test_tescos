@@ -25,8 +25,13 @@ command -v jq >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y
 get_cfg() { grep -E "^\s*$1:" "${CONFIG_YML}" 2>/dev/null | head -1 | sed -E 's/#.*$//; s/^[^:]*:[[:space:]]*//; s/[[:space:]]*$//'; }
 MAX_CRITICAL=$(get_cfg max_critical); MAX_CRITICAL=${MAX_CRITICAL:-0}
 MAX_HIGH=$(get_cfg max_high);         MAX_HIGH=${MAX_HIGH:-5}
+GATE_APP_DEPS=$(get_cfg gate_app_dependencies); GATE_APP_DEPS=${GATE_APP_DEPS:-false}
+MAX_APP_CRITICAL=$(get_cfg max_app_critical); MAX_APP_CRITICAL=${MAX_APP_CRITICAL:-0}
+MAX_APP_HIGH=$(get_cfg max_app_high);         MAX_APP_HIGH=${MAX_APP_HIGH:-10}
 case "${MAX_CRITICAL}" in *[!0-9]*|"") echo "WARNING: bad max_critical '${MAX_CRITICAL}' — defaulting to 0"; MAX_CRITICAL=0;; esac
 case "${MAX_HIGH}"     in *[!0-9]*|"") echo "WARNING: bad max_high '${MAX_HIGH}' — defaulting to 5";     MAX_HIGH=5;; esac
+case "${MAX_APP_CRITICAL}" in *[!0-9]*|"") MAX_APP_CRITICAL=0;;  esac
+case "${MAX_APP_HIGH}"     in *[!0-9]*|"") MAX_APP_HIGH=10;; esac
 
 # --- Collect unexpired allowlisted vulnerability IDs --------------------------
 TODAY=$(date +%Y-%m-%d)
@@ -49,11 +54,11 @@ if [ -s "${SNYK_JSON}" ]; then
   HIGH=$(jq --argjson allow "${ALLOW_JSON}" \
     '[.vulnerabilities[]? | select(.severity=="high") | select((.id as $i | $allow | index($i)) | not) | .id] | unique | length' \
     "${SNYK_JSON}" 2>/dev/null || echo 0)
-  # Bundled application dependencies (Spark/Kyuubi jars) are reported for
-  # visibility but NOT gated: they come from the upstream distributions and
-  # the acceptance policy for them is TBD-TESTING-TEAM.
-  APP_CRITICAL=$(jq '[.applications[]?.vulnerabilities[]? | select(.severity=="critical") | .id] | unique | length' "${SNYK_JSON}" 2>/dev/null || echo "n/a")
-  APP_HIGH=$(jq '[.applications[]?.vulnerabilities[]? | select(.severity=="high") | .id] | unique | length' "${SNYK_JSON}" 2>/dev/null || echo "n/a")
+  # Bundled application dependencies (Spark/Kyuubi jars). Gated only when
+  # gate_app_dependencies=true in the config; informational otherwise.
+  # Allowlist exclusions apply here too.
+  APP_CRITICAL=$(jq --argjson allow "${ALLOW_JSON}" '[.applications[]?.vulnerabilities[]? | select(.severity=="critical") | select((.id as $i | $allow | index($i)) | not) | .id] | unique | length' "${SNYK_JSON}" 2>/dev/null || echo "n/a")
+  APP_HIGH=$(jq --argjson allow "${ALLOW_JSON}" '[.applications[]?.vulnerabilities[]? | select(.severity=="high") | select((.id as $i | $allow | index($i)) | not) | .id] | unique | length' "${SNYK_JSON}" 2>/dev/null || echo "n/a")
 elif [ "${SNYK_SKIPPED:-false}" = "true" ]; then
   echo "WARNING: Snyk scan skipped (SNYK_TOKEN not configured) — vulnerability"
   echo "checks not enforced this run. Configure the SNYK_TOKEN secret to enable them."
@@ -85,7 +90,12 @@ check() { # label, found, max
 check "Critical vulnerabilities (OS)${SNYK_NOTE}" "${CRITICAL}" "${MAX_CRITICAL}"
 check "High vulnerabilities (OS)${SNYK_NOTE}"     "${HIGH}"     "${MAX_HIGH}"
 check "Dockle FATAL (CIS)"       "${DOCKLE_FATAL}" 0
-echo "| App deps critical/high (informational, policy TBD) | ${APP_CRITICAL}/${APP_HIGH} | n/a | INFO |"
+if [ "${GATE_APP_DEPS}" = "true" ] && [ "${APP_CRITICAL}" != "n/a" ]; then
+  check "App deps critical vulnerabilities" "${APP_CRITICAL}" "${MAX_APP_CRITICAL}"
+  check "App deps high vulnerabilities"     "${APP_HIGH}"     "${MAX_APP_HIGH}"
+else
+  echo "| App deps critical/high (informational, policy TBD) | ${APP_CRITICAL}/${APP_HIGH} | n/a | INFO |"
+fi
 
 echo ""
 if [ "${GATE_FAIL}" -eq 1 ]; then

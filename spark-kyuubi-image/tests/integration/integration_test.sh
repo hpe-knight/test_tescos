@@ -63,6 +63,31 @@ OUT=$(run_sql "SET spark.driver.memory;")
 echo "${OUT}" | grep -q "spark.driver.memory"
 record "resource_config_applied" $? "Could not read back spark.driver.memory"
 
+# --- Test G: JOIN + GROUP BY across two tables ---------------------------------
+run_sql "CREATE TABLE IF NOT EXISTS ci_orders (store_id INT, amount INT) USING parquet;" > /dev/null
+run_sql "CREATE TABLE IF NOT EXISTS ci_stores (store_id INT, region STRING) USING parquet;" > /dev/null
+run_sql "INSERT INTO ci_orders VALUES (1,100),(1,50),(2,70);" > /dev/null
+run_sql "INSERT INTO ci_stores VALUES (1,'north'),(2,'south');" > /dev/null
+OUT=$(run_sql "SELECT s.region, SUM(o.amount) AS total FROM ci_orders o JOIN ci_stores s ON o.store_id = s.store_id GROUP BY s.region ORDER BY s.region;")
+echo "${OUT}" | grep -q "150"
+record "spark_sql_join_group_by" $? "Expected north=150 in join/aggregation output: $(echo "${OUT}" | tail -3 | tr '\n' ' ')"
+
+# --- Test H: CTAS (CREATE TABLE AS SELECT) --------------------------------------
+run_sql "CREATE TABLE IF NOT EXISTS ci_orders_copy USING parquet AS SELECT * FROM ci_orders;" > /dev/null
+OUT=$(run_sql "SELECT COUNT(*) AS c FROM ci_orders_copy;")
+echo "${OUT}" | grep -q "3"
+record "spark_sql_ctas" $? "Expected 3 rows in CTAS table, got: $(echo "${OUT}" | tail -2 | tr '\n' ' ')"
+
+# --- Test I: shuffle-partition tuning from spark-defaults.conf is applied ------
+OUT=$(run_sql "SET spark.sql.shuffle.partitions;")
+echo "${OUT}" | grep -q "spark.sql.shuffle.partitions"
+record "shuffle_partitions_config_applied" $? "Could not read back spark.sql.shuffle.partitions"
+
+# --- Cleanup of Test G/H tables --------------------------------------------------
+run_sql "DROP TABLE IF EXISTS ci_orders;" > /dev/null
+run_sql "DROP TABLE IF EXISTS ci_stores;" > /dev/null
+run_sql "DROP TABLE IF EXISTS ci_orders_copy;" > /dev/null
+
 # ------------------------------------------------------------------------------
 # TBD-TESTING-TEAM: append manual test cases here, one record() block each,
 # e.g. UDF availability, catalog integration, specific dataset validations.

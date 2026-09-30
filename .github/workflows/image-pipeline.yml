@@ -270,6 +270,49 @@ jobs:
           path: reports/stage3/
 
   # ===========================================================================
+  # PUBLISH — push the fully tested image to Docker Hub (main branch only).
+  # Runs only after ALL stages pass; never on pull requests. The periodic
+  # re-scan workflow scans the :latest reference published here.
+  # ===========================================================================
+  publish:
+    name: "Publish — Push tested image to registry"
+    runs-on: ubuntu-latest
+    needs: [build-and-lint, security-scan, dynamic-test]
+    if: github.event_name != 'pull_request' && vars.DOCKERHUB_USERNAME != ''
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load image
+        run: docker load -i image.tar
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push (immutable SHA tag + rolling latest)
+        env:
+          # Override with a DOCKERHUB_NAMESPACE variable if the Hub org
+          # differs from the login user.
+          REGISTRY_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || vars.DOCKERHUB_USERNAME }}
+        run: |
+          REMOTE="${REGISTRY_NAMESPACE}/${IMAGE_NAME}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REMOTE}:${IMAGE_TAG}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REMOTE}:latest"
+          docker push "${REMOTE}:${IMAGE_TAG}"
+          docker push "${REMOTE}:latest"
+          {
+            echo "### Published image"
+            echo ""
+            echo "- \`${REMOTE}:${IMAGE_TAG}\` (immutable)"
+            echo "- \`${REMOTE}:latest\` (rolling, re-scanned weekly)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
   # REPORTS, NOTIFICATIONS & S3/CEPH ARCHIVAL — always runs
   # ===========================================================================
   report-and-notify:
