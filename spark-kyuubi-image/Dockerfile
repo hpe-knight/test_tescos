@@ -45,7 +45,12 @@ RUN KYUUBI_TGZ="apache-kyuubi-${KYUUBI_VERSION}-bin.tgz" && \
     sha512sum -c "${KYUUBI_TGZ}.sha512" && \
     mkdir -p /opt/kyuubi && \
     tar -xzf "${KYUUBI_TGZ}" -C /opt/kyuubi --strip-components=1 && \
-    rm -f "${KYUUBI_TGZ}" "${KYUUBI_TGZ}.sha512"
+    rm -f "${KYUUBI_TGZ}" "${KYUUBI_TGZ}.sha512" && \
+    # Strip demo/sample content shipped in the upstream distributions: the
+    # Kyuubi docker playground includes a sample .env that trips Dockle's
+    # CIS-DI-0010 credential check, and the Spark/Kyuubi Dockerfiles are
+    # flagged as unnecessary files. None of it is needed at runtime.
+    rm -rf /opt/kyuubi/docker /opt/spark/kubernetes
 
 # ---------- Stage 2: final runtime ----------
 FROM eclipse-temurin:17-jre-jammy AS final
@@ -59,7 +64,11 @@ ENV SPARK_HOME=/opt/spark \
     PATH=/opt/spark/bin:/opt/kyuubi/bin:$PATH
 
 # hadolint ignore=DL3008
+# `apt-get upgrade` pulls in pending Ubuntu security fixes (e.g. the openssl
+# high-severity CVE fixed in 3.0.2-0ubuntu1.30) so the quality gate's
+# OS-vulnerability thresholds can be met without allowlisting.
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends procps curl tini && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd -r -g 1099 kyuubi && \

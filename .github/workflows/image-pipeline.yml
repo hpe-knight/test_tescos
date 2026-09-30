@@ -200,6 +200,9 @@ jobs:
         env:
           SNYK_SKIPPED: ${{ steps.snyk-check.outputs.available == 'false' }}
         run: |
+          # pipefail: without it, `| tee` masks the gate's exit code and a
+          # FAILED gate would not block Stage 3.
+          set -o pipefail
           bash scripts/quality_gate.sh \
             reports/stage2/snyk-results.json \
             reports/stage2/dockle-results.json \

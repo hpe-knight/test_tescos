@@ -55,6 +55,9 @@ jobs:
         id: gate
         continue-on-error: true
         run: |
+          # pipefail: without it, `| tee` masks the gate's exit code and the
+          # security alert step would never fire.
+          set -o pipefail
           bash scripts/quality_gate.sh rescan-results.json "" \
             config/pipeline-config.yml config/allowlist.yml \
             | tee -a "$GITHUB_STEP_SUMMARY"
