@@ -36,6 +36,15 @@ jobs:
       # - uses: docker/login-action@v3
       #   with: { registry: ..., username: ..., password: ... }
 
+      # Docker Hub login (skipped when no credentials configured): avoids
+      # anonymous pull rate limits and allows re-scanning private Hub images.
+      - name: Login to Docker Hub
+        if: vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
+
       - name: Pull image
         continue-on-error: true
         run: docker pull "${{ matrix.image }}" || echo "PULL_FAILED=1" >> "$GITHUB_ENV"
