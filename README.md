@@ -1,6 +1,6 @@
 # TESCO — Automated Docker Image Testing & Scanning Pipeline (Prototype Framework)
 
-End-to-end, production-grade **prototype** CI/CD framework for automated building,
+End-to-end, prod-grade **prototype** CI/CD framework for automated building,
 security scanning, and dynamic testing of Docker container images, per the HPE
 proposal to TESCO. POC target: **Apache Spark + Kyuubi** stack.
 
