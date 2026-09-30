@@ -113,13 +113,14 @@ jobs:
         run: mkdir -p reports/stage2
 
       # ------------------------- SNYK -------------------------
-      # Snyk needs a SNYK_TOKEN secret. If it is not configured the scan is
+      # Snyk needs a token: preferably the SNYK_TOKEN secret, else the
+      # SNYK_TOKEN Actions variable. If neither is configured the scan is
       # skipped and the quality gate is told, so it can degrade gracefully
       # instead of failing on missing scan evidence.
       - name: Check Snyk token availability
         id: snyk-check
         env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN || vars.SNYK_TOKEN }}
         run: |
           if [ -n "${SNYK_TOKEN}" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
@@ -135,7 +136,7 @@ jobs:
         uses: snyk/actions/docker@master
         continue-on-error: true
         env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN || vars.SNYK_TOKEN }}
         with:
           image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           args: >-

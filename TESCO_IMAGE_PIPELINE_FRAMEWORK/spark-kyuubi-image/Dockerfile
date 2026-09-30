@@ -19,23 +19,29 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL -o spark.tgz \
-      "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_PROFILE}.tgz" && \
-    curl -fsSL -o spark.tgz.sha512 \
-      "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_PROFILE}.tgz.sha512" && \
-    sha512sum -c spark.tgz.sha512 && \
+# archive.apache.org throttles CI traffic and can cut large transfers mid-stream,
+# so retry and resume (-C -) instead of failing on the first truncated download.
+# The .sha512 file references the original archive filename, so the download
+# must keep that name for `sha512sum -c` to find it.
+RUN SPARK_TGZ="spark-${SPARK_VERSION}-bin-hadoop${HADOOP_PROFILE}.tgz" && \
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -C - -o "${SPARK_TGZ}" \
+      "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/${SPARK_TGZ}" && \
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${SPARK_TGZ}.sha512" \
+      "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/${SPARK_TGZ}.sha512" && \
+    sha512sum -c "${SPARK_TGZ}.sha512" && \
     mkdir -p /opt/spark && \
-    tar -xzf spark.tgz -C /opt/spark --strip-components=1 && \
-    rm -f spark.tgz spark.tgz.sha512
+    tar -xzf "${SPARK_TGZ}" -C /opt/spark --strip-components=1 && \
+    rm -f "${SPARK_TGZ}" "${SPARK_TGZ}.sha512"
 
-RUN curl -fsSL -o kyuubi.tgz \
-      "https://archive.apache.org/dist/kyuubi/kyuubi-${KYUUBI_VERSION}/apache-kyuubi-${KYUUBI_VERSION}-bin.tgz" && \
-    curl -fsSL -o kyuubi.tgz.sha512 \
-      "https://archive.apache.org/dist/kyuubi/kyuubi-${KYUUBI_VERSION}/apache-kyuubi-${KYUUBI_VERSION}-bin.tgz.sha512" && \
-    sha512sum -c kyuubi.tgz.sha512 && \
+RUN KYUUBI_TGZ="apache-kyuubi-${KYUUBI_VERSION}-bin.tgz" && \
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -C - -o "${KYUUBI_TGZ}" \
+      "https://archive.apache.org/dist/kyuubi/kyuubi-${KYUUBI_VERSION}/${KYUUBI_TGZ}" && \
+    curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${KYUUBI_TGZ}.sha512" \
+      "https://archive.apache.org/dist/kyuubi/kyuubi-${KYUUBI_VERSION}/${KYUUBI_TGZ}.sha512" && \
+    sha512sum -c "${KYUUBI_TGZ}.sha512" && \
     mkdir -p /opt/kyuubi && \
-    tar -xzf kyuubi.tgz -C /opt/kyuubi --strip-components=1 && \
-    rm -f kyuubi.tgz kyuubi.tgz.sha512
+    tar -xzf "${KYUUBI_TGZ}" -C /opt/kyuubi --strip-components=1 && \
+    rm -f "${KYUUBI_TGZ}" "${KYUUBI_TGZ}.sha512"
 
 # ---------- Stage 2: final runtime ----------
 FROM eclipse-temurin:17-jre-jammy AS final

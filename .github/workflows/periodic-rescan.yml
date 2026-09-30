@@ -45,7 +45,7 @@ jobs:
         uses: snyk/actions/docker@master
         continue-on-error: true
         env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN || vars.SNYK_TOKEN }}
         with:
           image: ${{ matrix.image }}
           args: --json-file-output=rescan-results.json
